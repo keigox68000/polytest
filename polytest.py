@@ -1,6 +1,7 @@
 import pyxel
 import math
 import re
+import os
 
 
 # ======================================================================
@@ -61,10 +62,8 @@ def parse_wrl(wrl_data, scale=50.0):
 # ======================================================================
 class App:
     def __init__(self):
-        # ★★★ 修正点: tkinter のインポートを削除 ★★★
         pyxel.init(320, 240, title="WRL Dithered Polygon Viewer", fps=60)
 
-        # 描画関連の初期設定
         self.screen_center_x = pyxel.width / 2
         self.screen_center_y = pyxel.height / 2
         self.bayer_matrix = [
@@ -75,13 +74,11 @@ class App:
         ]
         self.light_vec = [0, 0, -1]
         self.ambient_light = 0.2
-        self.model_color = 11  # 明るい水色
+        self.model_color = 11
 
-        # モデルデータ
         self.model_v = []
         self.model_f = []
 
-        # UIと状態管理
         self.message = ""
         self.is_auto_rotate = True
         self.angle_x = 0
@@ -89,7 +86,6 @@ class App:
         self.last_mouse_x = 0
         self.last_mouse_y = 0
 
-        # ★★★ 修正点: 起動時にデフォルトファイルを読み込む ★★★
         self._load_model_from_file("model.wrl")
 
         pyxel.mouse(True)
@@ -100,9 +96,22 @@ class App:
         指定されたファイルパスからWRLモデルを読み込んで解析する
         """
         try:
-            # ★★★ 修正点: `pyxel.root_dir` を削除し、直接ファイルを開くように修正 ★★★
-            with open(filepath, "r", encoding="utf-8") as f:
-                wrl_content = f.read()
+            # ★★★ 修正点: ファイルパスの取り扱いを修正 ★★★
+            # スクリプト自身の場所を基準にファイルの絶対パスを生成
+            # これにより、どこから実行してもファイルを見つけられる
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(base_path, filepath)
+
+            # Web版（app2html）では上記の方法が使えないため、
+            # まずは相対パスで開き、失敗したら絶対パスで試す
+            try:
+                # Web版およびローカルで同じフォルダから実行した場合
+                with open(filepath, "r", encoding="utf-8") as f:
+                    wrl_content = f.read()
+            except FileNotFoundError:
+                # ローカルで別の場所から実行した場合のフォールバック
+                with open(full_path, "r", encoding="utf-8") as f:
+                    wrl_content = f.read()
 
             self.model_v, self.model_f = parse_wrl(wrl_content, scale=50.0)
 
@@ -116,16 +125,13 @@ class App:
             self.message = f"Error: {e}"
 
     def update(self):
-        # 右クリックで回転モードを切り替え
         if pyxel.btnp(pyxel.MOUSE_BUTTON_RIGHT):
             self.is_auto_rotate = not self.is_auto_rotate
 
-        # モデルの回転処理
         if self.is_auto_rotate:
             self.angle_x = (pyxel.frame_count * 0.01) % (2 * math.pi)
             self.angle_y = (pyxel.frame_count * 0.015) % (2 * math.pi)
         else:
-            # ★★★ 修正点: ボタン関連の処理を削除 ★★★
             if pyxel.btn(pyxel.MOUSE_BUTTON_LEFT):
                 dx = pyxel.mouse_x - self.last_mouse_x
                 dy = pyxel.mouse_y - self.last_mouse_y
@@ -138,18 +144,12 @@ class App:
     def draw(self):
         pyxel.cls(0)
 
-        # モデルの描画
         if self.model_v and self.model_f:
             self.draw_solid_polygon(self.model_v, self.model_f, 0, 0, self.model_color)
 
-        # --- UIの描画 ---
-        # メッセージ表示
         if self.message:
             pyxel.text(5, 5, self.message, 7)
 
-        # ★★★ 修正点: ボタン描画処理を削除 ★★★
-
-        # モード表示
         mode_text = (
             "Mode: Auto (Right-click)" if self.is_auto_rotate else "Mode: Manual (Drag)"
         )
@@ -161,7 +161,6 @@ class App:
         cos_x, sin_x = math.cos(self.angle_x), math.sin(self.angle_x)
         cos_y, sin_y = math.cos(self.angle_y), math.sin(self.angle_y)
 
-        # 頂点データがない場合は処理を中断
         if not vertices:
             return
 
@@ -174,7 +173,6 @@ class App:
             rotated_points.append([rx, ry, final_z])
 
             perspective_strength = 300
-            # final_z が perspective_strength に近づきすぎると発散するのでクリップ
             if final_z >= perspective_strength:
                 final_z = perspective_strength - 1
             perspective = perspective_strength / (perspective_strength - final_z)
@@ -183,12 +181,10 @@ class App:
             projected_points.append((px, py))
 
         polygons_to_draw = []
-        # projected_pointsが空の場合があるためチェックを追加
         if not projected_points:
             return
 
         for f in faces:
-            # projected_pointsの範囲外のインデックスを参照しないようにチェック
             if any(
                 idx >= len(projected_points) or idx >= len(rotated_points) for idx in f
             ):
@@ -261,8 +257,5 @@ class App:
         return (p[0] - p1[0]) * (p2[1] - p1[1]) - (p[1] - p1[1]) * (p2[0] - p1[0])
 
 
-# ======================================================================
-# アプリケーションの実行
-# ======================================================================
 if __name__ == "__main__":
     App()
