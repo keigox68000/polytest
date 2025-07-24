@@ -1,8 +1,6 @@
 import pyxel
 import math
 import re
-import tkinter as tk
-from tkinter import filedialog
 
 
 # ======================================================================
@@ -63,6 +61,7 @@ def parse_wrl(wrl_data, scale=50.0):
 # ======================================================================
 class App:
     def __init__(self):
+        # ★★★ 修正点: tkinter のインポートを削除 ★★★
         pyxel.init(320, 240, title="WRL Dithered Polygon Viewer", fps=60)
 
         # 描画関連の初期設定
@@ -83,17 +82,14 @@ class App:
         self.model_f = []
 
         # UIと状態管理
-        self.message = "Click 'Load WRL' to open a file."
+        self.message = ""
         self.is_auto_rotate = True
         self.angle_x = 0
         self.angle_y = 0
         self.last_mouse_x = 0
         self.last_mouse_y = 0
 
-        # 画面上のボタンの定義
-        self.button_rect = (5, 5, 60, 15)  # x, y, width, height
-
-        # ★★★ 変更点: 起動時にデフォルトファイルを読み込む ★★★
+        # ★★★ 修正点: 起動時にデフォルトファイルを読み込む ★★★
         self._load_model_from_file("model.wrl")
 
         pyxel.mouse(True)
@@ -104,51 +100,22 @@ class App:
         指定されたファイルパスからWRLモデルを読み込んで解析する
         """
         try:
+            # ★★★ 修正点: `pyxel.root_dir` を削除し、直接ファイルを開くように修正 ★★★
             with open(filepath, "r", encoding="utf-8") as f:
                 wrl_content = f.read()
 
-            # 新しいモデルデータを読み込む
             self.model_v, self.model_f = parse_wrl(wrl_content, scale=50.0)
 
             if not self.model_v or not self.model_f:
                 self.message = "Parse Error: No model data."
             else:
-                self.message = f"Loaded: {filepath.split('/')[-1]}"
+                self.message = f"Loaded: {filepath}"
         except FileNotFoundError:
-            # 起動時にmodel.wrlが見つからなかった場合は、エラーではなく案内を表示
-            if filepath == "model.wrl":
-                self.message = "model.wrl not found. Click 'Load WRL'."
-            else:
-                self.message = f"Error: File not found - {filepath}"
+            self.message = "model.wrl not found."
         except Exception as e:
             self.message = f"Error: {e}"
 
-    def open_file_dialog(self):
-        """
-        ファイル選択ダイアログを開き、選択されたWRLファイルを読み込む
-        """
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-
-        filepath = filedialog.askopenfilename(
-            title="Select a WRL file",
-            filetypes=[("WRL files", "*.wrl"), ("All files", "*.*")],
-        )
-
-        root.destroy()
-
-        if filepath:
-            self._load_model_from_file(filepath)
-
     def update(self):
-        # ボタンのクリック処理
-        x, y, w, h = self.button_rect
-        is_hover = x <= pyxel.mouse_x < x + w and y <= pyxel.mouse_y < y + h
-        if pyxel.btnp(pyxel.MOUSE_BUTTON_LEFT) and is_hover:
-            self.open_file_dialog()
-            return  # ダイアログ表示中は他の処理をスキップ
-
         # 右クリックで回転モードを切り替え
         if pyxel.btnp(pyxel.MOUSE_BUTTON_RIGHT):
             self.is_auto_rotate = not self.is_auto_rotate
@@ -158,7 +125,8 @@ class App:
             self.angle_x = (pyxel.frame_count * 0.01) % (2 * math.pi)
             self.angle_y = (pyxel.frame_count * 0.015) % (2 * math.pi)
         else:
-            if pyxel.btn(pyxel.MOUSE_BUTTON_LEFT) and not is_hover:
+            # ★★★ 修正点: ボタン関連の処理を削除 ★★★
+            if pyxel.btn(pyxel.MOUSE_BUTTON_LEFT):
                 dx = pyxel.mouse_x - self.last_mouse_x
                 dy = pyxel.mouse_y - self.last_mouse_y
                 self.angle_y += dx * 0.01
@@ -177,14 +145,9 @@ class App:
         # --- UIの描画 ---
         # メッセージ表示
         if self.message:
-            pyxel.text(5, 25, self.message, 7)
+            pyxel.text(5, 5, self.message, 7)
 
-        # ボタンの描画
-        x, y, w, h = self.button_rect
-        is_hover = x <= pyxel.mouse_x < x + w and y <= pyxel.mouse_y < y + h
-        btn_col = 13 if is_hover else 5  # ホバー中は色を変える
-        pyxel.rect(x, y, w, h, btn_col)
-        pyxel.text(x + 5, y + 4, "Load WRL", 0)
+        # ★★★ 修正点: ボタン描画処理を削除 ★★★
 
         # モード表示
         mode_text = (
@@ -198,6 +161,10 @@ class App:
         cos_x, sin_x = math.cos(self.angle_x), math.sin(self.angle_x)
         cos_y, sin_y = math.cos(self.angle_y), math.sin(self.angle_y)
 
+        # 頂点データがない場合は処理を中断
+        if not vertices:
+            return
+
         for v in vertices:
             x, y, z = v[0], v[1], v[2]
             rx = x * cos_y - z * sin_y
@@ -206,18 +173,25 @@ class App:
             final_z = y * sin_x + rz * cos_x
             rotated_points.append([rx, ry, final_z])
 
-            # パースペクティブの値が大きすぎるとモデルが歪むため調整
             perspective_strength = 300
-            if perspective_strength - final_z <= 0:  # ゼロ除算を避ける
-                continue
+            # final_z が perspective_strength に近づきすぎると発散するのでクリップ
+            if final_z >= perspective_strength:
+                final_z = perspective_strength - 1
             perspective = perspective_strength / (perspective_strength - final_z)
             px = rx * perspective + self.screen_center_x + offset_x
             py = ry * perspective + self.screen_center_y + offset_y
             projected_points.append((px, py))
 
         polygons_to_draw = []
+        # projected_pointsが空の場合があるためチェックを追加
+        if not projected_points:
+            return
+
         for f in faces:
-            if any(idx >= len(rotated_points) for idx in f):
+            # projected_pointsの範囲外のインデックスを参照しないようにチェック
+            if any(
+                idx >= len(projected_points) or idx >= len(rotated_points) for idx in f
+            ):
                 continue
 
             p1_rot, p2_rot, p3_rot = (
