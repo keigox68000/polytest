@@ -1,0 +1,4 @@
+projects/
+other/
+*.pyxapp
+model.wrl
